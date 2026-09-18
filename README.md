@@ -150,14 +150,17 @@ This project is a companion field guide, not an official replacement for t2linux
 
 ## Thanks to
 
-Area31 Hackerspace and SJ. 
+Area31 Hackerspace, Slackware-br (SJ), and BHack friends.
+
+I've been learning and drinking beer with these guys since 1998.
 
 ## Special thanks
 
-A very special thank you to the **Caverna guys**. ❤️
+A very special thank you to my **Caverna brothers**. ❤️
 
-I have an enormous pleasure working with you guys, and that makes this whole journey even more enjoyable.
+I've had the enormous pleasure of working with you guys, and that makes this whole QA journey even more enjoyable.
 
+Love you all.
 ## License
 
 This repository's original material is dedicated to the public domain under **CC0**.
