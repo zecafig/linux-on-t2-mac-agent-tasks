@@ -2,9 +2,15 @@
 
 # Real Failures and Verified Findings
 
-This file records problems encountered during the installation and QA process.
+This file records problems encountered during installation and QA.
 
-The purpose is not to hide failures. A real installation guide should preserve them because they are often the most useful information for the next person.
+The current and tested Touch ID implementation is
+[`jmurth1234/t2-touchid-linux`](https://github.com/jmurth1234/t2-touchid-linux).
+The installer, units, helpers, and authoritative recovery procedures are in
+that upstream repository, not this documentation repository. Follow its
+current troubleshooting instructions before attempting ad-hoc changes.
+
+---
 
 ## 1. Standard Ubuntu live ISO freezes on T2 Mac
 
@@ -18,258 +24,387 @@ Use the T2-specific Ubuntu image from the t2linux project.
 
 Tested image:
 
-`ubuntu-26.04-7.1.8-t2-resolute.iso`
-
-The ISO was written to USB and independently verified byte-for-byte against the ISO-sized range on the USB.
-
-### Upstream
-
-- T2-Ubuntu: https://github.com/t2linux/T2-Ubuntu
-- t2linux: https://t2linux.org/
+```text
+ubuntu-26.04-7.1.8-t2-resolute.iso
+```
 
 ---
 
-## 2. T2 NCM interface had no IPv6 link-local address
+## 2. T2 NCM interface has no IPv6 link-local address
 
 ### Symptom
 
-`t2-touchid` reported that it could not reach the sensor because `t2_ncm` had no IPv6 link-local address.
+The Touch ID transport cannot reach BridgeOS because the T2 USB-NCM interface has no usable IPv6 link-local address.
 
-The interface existed but NetworkManager did not initially have the expected connection associated with it.
-
-### Verified configuration
-
-The existing `Apple T2 Bridge` NetworkManager profile was bound to `t2_ncm`:
+First set `T2_NCM_IF` to the interface actually discovered on this Mac. The
+test machine used `t2_ncm`; do not assume that name on another machine.
 
 ```bash
-sudo nmcli connection modify "Apple T2 Bridge" connection.interface-name t2_ncm
-sudo nmcli connection up "Apple T2 Bridge"
+T2_NCM_IF="replace-with-discovered-interface"
 ```
 
-Afterward:
+Check:
 
 ```bash
-ip -6 addr show dev t2_ncm
+ip -6 addr show dev "$T2_NCM_IF"
+ip -6 route show dev "$T2_NCM_IF"
+ip -6 neigh show dev "$T2_NCM_IF"
 ```
 
-showed a link-local IPv6 address.
+The interface may exist while the T2 network path is not ready.
 
-Touch ID then became available.
+### Important distinction
+
+The Linux-side link-local address is **not** the BridgeOS peer.
+
+Both must be discovered:
+
+- Linux-side link-local address;
+- BridgeOS link-local peer.
+
+Do not invent the peer address from the interface MAC.
+
+### Diagnostics
+
+```bash
+ip -details link show dev "$T2_NCM_IF"
+ip -6 addr show dev "$T2_NCM_IF"
+ip -6 route show dev "$T2_NCM_IF"
+ip -6 neigh show dev "$T2_NCM_IF"
+nmcli device show "$T2_NCM_IF"
+```
+
+Then:
+
+```bash
+systemctl status t2-bridge-network.service --no-pager
+journalctl -b --no-pager | grep -Ei 't2-bridge-network|t2_ncm|bridgeos|touchid|sep|remotexpc'
+```
+
+Do not modify `/etc/resolv.conf` as a response to a T2 IPv6 connectivity problem. The T2 link is a separate private network path.
 
 ---
 
-## 3. Fingerprint was visible but not bound to the Linux user
+## 3. BridgeOS peer cannot be discovered
 
 ### Symptom
 
-The T2 Touch ID service could see the enrolled macOS finger but `fprintd-list` did not initially show a fingerprint bound to the Linux user.
+The discovered T2 USB-NCM interface exists, but no BridgeOS IPv6 neighbor
+appears.
 
-### Resolution
-
-Create the local Touch ID configuration from the package template:
-
-```bash
-sudo mkdir -p /etc/kait2en
-sudo cp /usr/share/kait2en/t2-touchid.conf /etc/kait2en/
-```
-
-Set the binding:
-
-```text
-T2_TOUCHID_BIND_USER=<your-linux-username>
-```
-
-Restart the service:
+Check:
 
 ```bash
-sudo systemctl restart kait2en-t2-touchid.service
+ip -6 neigh show dev "$T2_NCM_IF"
 ```
 
-The service then reported the enrolled finger as bound to the Linux user.
+Verify that the T2 interface is present, administratively up, has its
+link-local IPv6 address, and that `t2-bridge-network.service` is active.
 
-`fprintd-list` subsequently showed:
+Do not use the Linux-side link-local address as the BridgeOS peer.
 
-```text
-Fingerprints for user <your-linux-username>
-- #0: right-index-finger
-```
+If the peer remains unavailable, stop before modifying Touch ID, PAM, or SEP configuration.
 
 ---
 
-## 4. Touch ID fails after automatic suspend
-
-### This is the important one
-
-**KEEP AUTOMATIC SUSPEND DISABLED.**
-
-Automatic suspend was already intended to remain disabled in the normal configuration.
-
-During QA, it was temporarily enabled specifically to test suspend/resume behavior.
-
-### Reproduction
-
-After automatic suspend and resume:
-
-- Touch ID authentication timed out.
-- `t2_ncm` could still be up.
-- `t2_ncm` could still have its IPv6 link-local address.
-- `fprintd` could still see the enrolled finger.
-- `kait2en-t2-touchid.service` remained active.
-
-The Touch ID daemon reported:
-
-```text
-t2-touchid: cannot reach the sensor: BiometricKit was not advertised: connection timed out
-```
-
-### Recovery attempts
-
-These did **not** restore Touch ID:
-
-```bash
-sudo systemctl restart fprintd
-```
-
-or:
-
-```bash
-sudo systemctl restart kait2en-t2-touchid.service
-```
-
-A reboot restored Touch ID.
-
-### Mitigation
-
-Disable automatic suspend and leave it disabled.
-
-Do not treat this as a reason to make arbitrary changes to the T2 transport or unload kernel modules. The failure was reproduced and documented rather than hidden behind an unverified workaround.
-
----
-
-## 5. GNOME keyring is not unlocked by fingerprint login
+## 4. Touch ID service starts before the T2 network is ready
 
 ### Symptom
 
-After logging into GNOME using fingerprint, Chrome can ask for the GNOME keyring password.
+The current Touch ID stack reports that the discovered T2 USB-NCM interface
+has no usable IPv6 link-local address or BridgeOS is not reachable.
 
-After logging in with the account password, Chrome does not ask for the keyring password.
+### Interpretation
 
-### Evidence
+The T2 network path was not ready when SEP transport attempted to start.
 
-The GNOME PAM configuration includes `pam_gnome_keyring`.
+A working interface appearing later does not prove that the original startup
+sequence was correct.
 
-During fingerprint login the journal reported:
+### Current upstream approach
+
+The current workflow orders the relevant components:
 
 ```text
-gkr-pam: no password is available for user
+T2 bridge network
+        ↓
+BridgeOS peer verification
+        ↓
+biometric BridgeXPC port refresh
+        ↓
+SEP transport
+        ↓
+keybag loading
+        ↓
+fprintd readiness
 ```
 
-This is consistent with the important distinction between password authentication and fingerprint authentication: fingerprint verification does not inherently provide the user's plaintext password to `pam_gnome_keyring`.
+Do not assume the biometric port refresh has its own service unit or recreate
+this ordering with arbitrary systemd overrides. Check the installed upstream
+units and current upstream troubleshooting instructions first.
 
-### Security decision
+### Diagnostics
 
-Do **not**:
+```bash
+systemctl status t2-bridge-network.service --no-pager
+systemctl status t2-sep-transport.service --no-pager
+systemctl status t2-keybag-load.service --no-pager
+systemctl status fprintd.service --no-pager
+systemctl list-dependencies t2-sep-transport.service --no-pager
+```
 
-- make the keyring passwordless;
-- switch Chrome to insecure/basic password storage;
-- install extra software merely to hide the prompt.
+Then:
 
-### Current operational solution
-
-After reboot:
-
-> **Log in with the password once.**
-
-The GNOME keyring is then unlocked, Chrome starts without the keyring prompt, and fingerprint authentication remains available for:
-
-- sudo;
-- lock-screen unlock;
-- subsequent authentication.
-
-This behavior is intentionally documented rather than "fixed" by weakening security.
+```bash
+journalctl -b --no-pager | grep -Ei 't2-bridge-network|t2-sep-transport|t2-keybag-load|t2-touchid|fprintd|remotexpc|biometr'
+```
 
 ---
 
-## 6. GDM fingerprint-login restriction and custom login banner are not yet working
+## 5. Fingerprint is visible but not usable
 
-### Current configuration
+If:
 
-The following file exists:
-
-```text
-/etc/dconf/db/local.d/00-login-fingerprint
+```bash
+fprintd-list "$USER"
 ```
 
-with:
+does not show the expected enrolled fingerprint, do not immediately modify PAM.
 
-```text
-[org/gnome/login-screen]
-enable-fingerprint-authentication=false
+First inspect the current `t2-touchid-linux` configuration and identity state.
+
+Follow the upstream provisioning/reconciliation procedure rather than manually editing fingerprint databases.
+
+---
+
+## 6. Catacomb provisioning, keybag loading, or unlocking fails
+
+Treat these as distinct stages: Catacomb provisioning validates and installs
+the exported Catacomb; `t2-keybag-load.service` loads the keybag; and
+`t2-keybag-unlock` unlocks the loaded handles. Do not retry unlock as a
+substitute for a failed provisioning or load step.
+
+Check:
+
+```bash
+systemctl status t2-keybag-load.service --no-pager
+sudo ls -la /run/t2-touchid
 ```
 
-A separate login-message configuration was attempted:
+Recovery:
 
-```text
-/etc/dconf/db/local.d/01-login
+```bash
+sudo t2-keybag-unlock
 ```
 
-with:
+Run the unlock helper only after confirming that the current boot's
+`t2-keybag-load.service` succeeded. If provisioning or loading failed, collect
+the upstream diagnostics and stop before PAM changes.
+
+The Linux and macOS passwords are separate credentials.
+
+Never put either password in command-line arguments, environment variables, shell history, persistent plaintext files, or logs.
+
+---
+
+## 7. Historical Touch ID failure after automatic suspend
+
+Automatic suspend was temporarily enabled during QA of the previous
+implementation.
+
+The previous implementation reproduced a Touch ID failure after resume even when `t2_ncm`, IPv6 addressing, `fprintd`, and the Touch ID service appeared healthy.
+
+Restarting `fprintd` and the previous implementation's Touch ID service did
+not recover it. A reboot restored Touch ID.
+
+This finding belongs to the previous implementation. It has not been
+reproduced with the current `jmurth1234/t2-touchid-linux` implementation.
+
+> **Do not enable automatic suspend until current-implementation behavior has been verified.**
+
+Test suspend/resume independently after normal operation is verified.
+
+---
+
+## 8. Fingerprint login does not unlock GNOME keyring
+
+Fingerprint verification does not inherently provide the user's plaintext password to `pam_gnome_keyring`.
+
+The tested workflow is to log in with the password after reboot so the GNOME
+login keyring unlocks, then use Touch ID for sudo and lock-screen unlock.
+
+Do not make the keyring passwordless or weaken Chrome password storage merely to hide the prompt.
+
+---
+
+## 9. GDM password-first restriction was not confirmed
+
+A previous configuration attempted to require a password after restart and display:
 
 ```text
-[org/gnome/login-screen]
-banner-message-enable=true
-banner-message-text='Password required after restart'
+Password required after restart
 ```
 
-### Observed result
+The tested login screen continued to display the fingerprint prompt.
 
-The tested GDM screen did **not** show the intended custom message.
+Therefore the custom banner and GDM fingerprint restriction were not confirmed.
 
-Instead, the screen displayed the fingerprint prompt:
+**Status: UNRESOLVED / DEFERRED**
 
-> **Swipe your right index finger across the fingerprint reader**
+Do not modify a working PAM/T2/Touch ID configuration merely to force this behavior.
 
-After pressing `Esc`, the user could enter the password, and fingerprint authentication remained available as an alternative.
+---
 
-Therefore:
+## 10. `fprintd` reports an unspecified device error
 
-- the custom banner is **not confirmed working**;
-- the GDM fingerprint restriction is **not working**;
-- fingerprint login itself remains functional;
-- the password-first keyring behavior remains a separate, working security-preserving procedure.
+Logs may contain:
 
-### Status
+```text
+Error receiving instruction data: Got empty data
+```
 
-**UNRESOLVED / DEFERRED**
+and:
 
-Do not change the working PAM, `fprintd`, `t2-touchid`, sudo, or lock-screen configuration merely to force this behavior.
+```text
+Device reported an error during verify: An unspecified error occurred!
+```
 
-The desired future state is:
+These messages were recorded during earlier QA; do not assume they identify a
+current-implementation failure without reproducing them. Use them as symptoms
+to investigate, not as a diagnosis.
 
-> Password required after reboot → GNOME keyring unlocked → fingerprint available for sudo and lock-screen authentication.
+Do not immediately delete fingerprints or reinstall PAM.
 
-The GDM-only enforcement and login message will be investigated later as separate controlled changes.
+Collect:
+
+```bash
+systemctl status fprintd --no-pager
+fprintd-list "$USER"
+systemctl status t2-bridge-network.service --no-pager
+systemctl status t2-sep-transport.service --no-pager
+systemctl status t2-keybag-load.service --no-pager
+systemctl list-dependencies t2-sep-transport.service --no-pager
+```
+
+Then:
+
+```bash
+journalctl -b --no-pager | grep -Ei 't2-touchid|t2_ncm|fprintd|biometr|remotexpc|sep|keybag|catacomb'
+```
+
+Pay particular attention to startup ordering.
+
+---
+
+## 11. PAM changes cause authentication problems
+
+Never install PAM integration before direct fingerprint verification passes.
+
+Positive control:
+
+```bash
+fprintd-verify -f any "$USER"
+```
+
+An enrolled finger must match.
+
+Negative control must produce:
+
+```text
+verify-no-match
+```
+
+using an unenrolled finger.
+
+The upstream `tools/install-pam.sh` expects Arch-style
+`/etc/pam.d/system-auth` ordering and may install Omarchy-specific lock-screen
+stacks. Do not use it as a generic Ubuntu PAM procedure. Only proceed with a
+PAM change after confirming that the procedure supports the installed Ubuntu
+release and actual PAM service files, and after preparing a verified rollback
+path with a root shell open.
+
+The upstream `tools/rollback-pam.sh` is for restoring changes made by its
+installer; do not assume it can roll back a different Ubuntu-specific PAM
+change. Use the rollback procedure corresponding to the actual edit.
+
+Do not remove password authentication as a troubleshooting step.
+
+---
+
+## 12. macOS Touch ID exports are missing or invalid
+
+Boot macOS and confirm:
+
+- password authentication works;
+- the intended Touch ID finger is enrolled;
+- the intended finger works in macOS.
+
+Run the upstream export helpers from the `t2-touchid-linux` checkout on
+macOS, following that project's current instructions:
+
+```text
+tools/macos/
+```
+
+Transfer the resulting files privately.
+
+Never commit or publish exported material.
+
+If the export is incomplete or invalid, stop rather than constructing replacement files manually.
+
+---
+
+## 13. Never use `/etc/resolv.conf` to fix T2 Touch ID
+
+The T2 Touch ID connection uses its own private IPv6 path.
+
+A normal systemd-resolved configuration such as:
+
+```text
+nameserver 127.0.0.53
+```
+
+in `/etc/resolv.conf` is not evidence of a Touch ID networking problem.
+
+Check the actual T2 path:
+
+```bash
+T2_NCM_IF="replace-with-discovered-interface"
+ip -6 addr show dev "$T2_NCM_IF"
+ip -6 route show dev "$T2_NCM_IF"
+ip -6 neigh show dev "$T2_NCM_IF"
+```
+
+Use `resolvectl status` only when diagnosing general DNS behavior.
+
+Do not replace `/etc/resolv.conf` with a static DNS configuration as a response to a T2 Touch ID failure.
 
 ---
 
 ## Troubleshooting philosophy
 
-When a failure occurs:
-
-1. Reproduce it.
+1. Reproduce the failure.
 2. Record the exact symptom.
 3. Check the relevant subsystem before changing it.
-4. Avoid speculative fixes.
-5. Prefer a reversible mitigation.
-6. Verify the mitigation.
-7. Document both the failure and the successful recovery.
+4. Inspect startup ordering when the failure occurs after boot.
+5. Check T2 network readiness before changing fingerprint configuration.
+6. Avoid speculative fixes.
+7. Prefer reversible mitigations.
+8. Verify the mitigation.
+9. Document both failure and recovery.
 
 A workaround is not automatically a fix.
 
-And a test that breaks something is still valuable QA if it tells us what not to enable.
+## Final safety rules
 
-## Final warning for this configuration
+> **Keep macOS available.**
 
-> **KEEP AUTOMATIC SUSPEND DISABLED.**
+> **Keep password authentication working.**
 
-The suspend test is what exposed the reproducible Touch ID failure after resume. The normal configuration should leave automatic suspend disabled.
+> **Do not commit macOS keybags, Catacomb archives, credentials, or other private T2/Touch ID state.**
+
+> **Do not modify PAM until both positive and negative fingerprint controls pass.**
+
+> **Do not unload a T2 kernel module after it has registered SEP DMA. Reboot before replacing it.**
+
+> **Do not perform destructive or irreversible Touch ID identity operations without explicit acknowledgement and a verified recovery path.**
