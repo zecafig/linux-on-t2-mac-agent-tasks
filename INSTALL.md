@@ -177,31 +177,29 @@ If either control fails, stop and diagnose the T2 network, BridgeOS
 reachability, SEP transport, keybag/Catacomb state, and `fprintd` using the
 upstream troubleshooting instructions. Do not proceed to PAM.
 
-## 6. Verify Ubuntu PAM compatibility before PAM changes
+## 6. Stop before PAM changes unless an Ubuntu procedure is verified
 
 The upstream `tools/install-pam.sh` currently expects Arch-style
 `/etc/pam.d/system-auth` ordering and can install Omarchy-specific lock-screen
-stacks. It is **not a generic Ubuntu PAM installer**. Do not run it on Ubuntu
-unless the current upstream project explicitly supports the installed Ubuntu
-release and PAM stack, and its preflight confirms that exact stack is
-compatible. The companion rollback helper is likewise for a setup made by
-that installer, not a substitute for an Ubuntu recovery plan.
+stacks. It is **not a generic Ubuntu PAM installer**. Do not run
+`tools/install-pam.sh` or `tools/rollback-pam.sh` as part of this Ubuntu
+procedure.
 
 The test machine has demonstrated sudo and GNOME lock-screen fingerprint
 authentication on Ubuntu, but this repository does not record a reproducible,
-Ubuntu-specific PAM installation procedure. Do not infer one from the
-upstream Arch/Omarchy helper. Before attempting any Ubuntu PAM changes,
-inspect the actual PAM service files and the tested machine's configuration,
-consult current upstream guidance, and establish an Ubuntu-specific procedure
-with a verified rollback path. If that cannot be established, stop before
-editing PAM.
+Ubuntu-specific PAM installation procedure or rollback path. Do not infer one
+from the upstream Arch/Omarchy helper. This guide therefore stops before PAM:
+without a separately verified procedure for the installed Ubuntu release and
+actual PAM service files, make no PAM changes and do not continue to PAM
+authentication testing.
 
 Before any PAM change, keep a working root recovery shell open, verify the
 Linux password, and preserve the original files. Any Ubuntu-specific rollback
 must be verified for the actual changes made. Keep password authentication as
 a recovery path; never remove it as a troubleshooting step.
 
-After applying a verified Ubuntu-compatible configuration, test:
+Only after a verified Ubuntu-specific procedure has been established and
+applied may an agent perform these checks:
 
 1. `sudo -k` followed by `sudo -v` accepts a valid enrolled finger and rejects
    an invalid one;
