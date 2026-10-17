@@ -59,6 +59,11 @@ Ubuntu occupies approximately 300 GB of the internal SSD, while the macOS APFS c
 
 ## Installation journey
 
+This playbook does not replace the Ubuntu installation guide. Install Ubuntu
+with the T2-supported kernel using the
+[t2linux Ubuntu guide](https://wiki.t2linux.org/distributions/ubuntu/installation/)
+first, then use `INSTALL.md` for the agent-assisted Touch ID setup.
+
 The standard Ubuntu ISO was not usable on this T2 Mac: the live environment froze with SQUASHFS/xz errors.
 
 The installation therefore used the T2-specific Ubuntu image from the t2linux project.
@@ -81,22 +86,28 @@ Good QA also means documenting failures honestly, reproducing them where possibl
 
 ## Authentication / Touch ID
 
-Touch ID was successfully brought up using `t2-touchid`.
+The current and tested Touch ID implementation is
+[`jmurth1234/t2-touchid-linux`](https://github.com/jmurth1234/t2-touchid-linux).
+The upstream repository supplies the installer, macOS export helpers, PAM
+helpers, provisioning utilities, and systemd units; this repository contains
+documentation only. See [INSTALL.md](./INSTALL.md) for the current setup
+sequence.
 
-The T2 NCM interface required a NetworkManager connection bound explicitly to `t2_ncm` so that it received an IPv6 link-local address.
-
-The Touch ID service was then configured to bind the enrolled fingerprint to the Linux user.
+On the test machine, the T2 NCM interface required a NetworkManager
+connection bound explicitly to `t2_ncm` so that it received an IPv6
+link-local address. Discover the actual interface on other Macs.
 
 The resulting setup supports:
 
 - GNOME lock-screen fingerprint unlock
 - `sudo` fingerprint authentication
-- Fingerprint login at GDM (currently still available)
 
 The GNOME keyring behaves differently depending on how the session starts:
 
 - Password login unlocks the GNOME keyring automatically.
-- Fingerprint login does not provide the plaintext password required by `pam_gnome_keyring`, so Chrome can subsequently request the keyring password.
+- Fingerprint authentication does not provide the plaintext password required
+  by `pam_gnome_keyring`, so Chrome can subsequently request the keyring
+  password if the keyring was not unlocked by password login.
 
 For security, the project does **not** use passwordless keyrings and does not recommend disabling Chrome's secure password storage.
 
@@ -104,29 +115,40 @@ The current tested operational model is:
 
 > **After reboot, use the password once. After that, Touch ID can be used for sudo and lock-screen authentication.**
 
-A future task is to make GDM enforce password authentication after reboot while retaining fingerprint authentication for the running session. This is intentionally left unresolved for later rather than forcing an unverified configuration.
-
-A login-screen banner was also attempted, but the displayed login screen still showed the fingerprint prompt rather than the intended custom message. The banner configuration is therefore **not considered working** and is deferred together with the GDM login-policy investigation.
+The GDM password-first restriction and login-screen banner remain unresolved.
+Use password login after reboot for the tested keyring workflow; do not alter
+PAM merely to force an unverified GDM policy.
 
 ## Important power-management finding
 
-**Keep automatic suspend disabled.**
+**Keep automatic suspend disabled until current-implementation behavior is verified.**
 
-During QA, automatic suspend was temporarily enabled specifically to test suspend/resume behavior. That test reproduced a Touch ID failure after resume.
+During QA of the previous Touch ID implementation, automatic suspend was
+temporarily enabled specifically to test suspend/resume behavior. That test
+reproduced a Touch ID failure after resume. This was not reproduced with the
+current `jmurth1234/t2-touchid-linux` implementation; its suspend/resume
+behavior on this machine has not yet been verified.
 
-After resume, the T2 network interface could remain healthy and the fingerprint could remain visible to `fprintd`, while the Touch ID daemon reported that BiometricKit was not advertised and timed out.
+The upstream README reports `s2idle` suspend/resume verified on its proven
+configurations and says `deep` remains broken there. Neither result verifies
+suspend/resume on this Ubuntu installation.
 
-Restarting `fprintd` and restarting `t2-touchid` did not recover the sensor. A reboot restored Touch ID.
+With the previous implementation, the T2 network interface could remain
+healthy and the fingerprint could remain visible to `fprintd`, while the
+Touch ID daemon reported that BiometricKit was not advertised and timed out.
+
+Restarting `fprintd` and the previous implementation's Touch ID service did
+not recover the sensor. A reboot restored Touch ID.
 
 Therefore:
 
-> **Do not enable automatic suspend on this tested configuration. Keep it disabled.**
+> **Do not enable automatic suspend until the current implementation's behavior has been tested.**
 
 See `TROUBLESHOOTING.md` and `TESTED.md`.
 
 ## Documentation
 
-- `INSTALL.md` — the agent-assisted installation protocol and task structure.
+- `INSTALL.md` — the ordered agent-assisted Touch ID setup.
 - `TESTED.md` — evidence-based compatibility / QA matrix.
 - `TROUBLESHOOTING.md` — failures reproduced during this installation and their verified mitigations.
 
@@ -144,8 +166,7 @@ This project is a companion field guide, not an official replacement for t2linux
 - [t2linux state](https://wiki.t2linux.org/state/)
 - [t2linux audio configuration](https://wiki.t2linux.org/guides/audio-config/)
 - [t2linux Wi-Fi / Bluetooth guide](https://wiki.t2linux.org/guides/wifi-bluetooth/)
-- [KAIT2EN](https://kait2en.org/documentation.html)
-- [t2-touchid-linux](https://github.com/jmurth1234/t2-touchid-linux)
+- [Current Touch ID implementation: `jmurth1234/t2-touchid-linux`](https://github.com/jmurth1234/t2-touchid-linux)
 - [Ubuntu](https://ubuntu.com/)
 
 ## Thanks to

@@ -4,6 +4,8 @@
 
 This file records what was actually exercised on the test machine.
 
+Do not mark a feature as PASS because an installation procedure exists. A PASS requires an actual test on the documented machine.
+
 ## Test machine
 
 - MacBook Pro `MacBookPro15,2`
@@ -20,114 +22,107 @@ This file records what was actually exercised on the test machine.
 - Wayland
 - Kernel `7.2.6-1-t2-resolute`
 
-## Installation state
-
-| Area | Result | Notes |
-|---|---|---|
-| macOS preservation | PASS | Existing APFS installation preserved |
-| APFS resize | PASS | macOS container reduced to ~700 GB |
-| Linux free space | PASS | ~300 GB created after APFS resize |
-| Ubuntu installation | PASS | Manual installation into the free space |
-| Apple EFI reuse | PASS | Existing EFI reused; not formatted |
-| Ubuntu boot | PASS | Starts from Apple's Startup Manager |
-| macOS boot | PASS | macOS remains available |
-
-## Hardware / desktop testing
-
-| Area | Result | Notes |
-|---|---|---|
-| Wi-Fi | PASS | Tested |
-| Bluetooth phone | PASS | Tested |
-| Bluetooth microphone/audio | PASS | Tested |
-| Internal speakers | PASS | Tested |
-| Internal microphone | PASS | Tested |
-| Samsung external display | PASS | Tested |
-| Samsung monitor speakers | PASS | Tested |
-| Internal camera | PASS | Tested |
-| Chrome | PASS | Tested |
-| Passkey QR authentication | PASS | Tested |
-| Google Meet | PASS | Internal/Bluetooth mic, speakers, camera, Wi-Fi/WebRTC |
-| Touch Bar controls | PASS | Volume, playback, brightness, Escape |
-| Keyboard backlight | PASS | Tested |
-| Display brightness | PASS | Tested |
-| Touch ID / GNOME unlock | PASS | Tested |
-| Touch ID / sudo | PASS | Tested |
-| 3.5 mm headphone output | PASS | Tested |
-| 3.5 mm headset microphone | NOT FULLY TESTED | Still open |
-| Trackpad | NOT FULLY TESTED | Formal testing pending |
-| USB-C hub | PASS / PARTIAL | Flash drive, HDMI, keyboard, mouse, hotplug tested; individual ports pending |
-| Battery / charging | PASS | Tested |
-| Automatic suspend | DO NOT ENABLE | See suspend/Touch ID finding below |
-
 ## Touch ID
 
-### Working
+### Current implementation
 
-Touch ID works with:
+The current and tested implementation is
+[`jmurth1234/t2-touchid-linux`](https://github.com/jmurth1234/t2-touchid-linux).
+On the test machine, the implementation is installed and in use. The upstream
+project supplies the installer, export helpers, provisioning utilities, PAM
+helpers, and systemd units; they are not part of this documentation repository.
 
-- GNOME lock-screen unlock
-- `sudo`
-- fingerprint enrollment through the configured `fprintd` interface
+| Area | Result |
+|---|---|
+| macOS Touch ID enrollment | TESTED |
+| macOS keybag and Catacomb export | TESTED |
+| Private transfer of exports | TESTED |
+| T2 USB-NCM discovery | TESTED |
+| BridgeOS IPv6 peer discovery | TESTED |
+| Upstream `t2-touchid-linux` installation | TESTED |
+| T2 bridge network and startup ordering | TESTED |
+| Biometric BridgeXPC port discovery before SEP transport | TESTED |
+| Keybag loading and unlock | TESTED |
+| Positive `fprintd-verify` control | TESTED |
+| Negative `fprintd-verify` control | TESTED |
+| sudo fingerprint and password fallback | TESTED |
+| GNOME lock-screen fingerprint and password fallback | TESTED |
+| Reboot recovery and post-boot operation | TESTED |
+| Current implementation suspend/resume on this Ubuntu installation | NOT YET TESTED |
+| Ubuntu-specific PAM procedure used on the test machine | NOT RECORDED |
+| Installed upstream revision used on the test machine | NOT RECORDED |
 
-The Touch ID service is configured to bind the enrolled finger to the Linux user.
+The installed upstream commit was not recorded. Capture it from the tested
+installation before relying on version-specific upstream instructions or
+reproducing its setup.
 
-### GDM login / keyring behavior
+### Direct verification and Ubuntu PAM scope
 
-The current tested behavior is:
+Before any PAM changes, run the following command separately for each direct
+`fprintd` control:
 
-1. After reboot, GDM still offers fingerprint authentication.
-2. Fingerprint login succeeds.
-3. Fingerprint login does not unlock the GNOME login keyring.
-4. Password login does unlock the keyring.
-5. After password login, Chrome does not prompt for the keyring password.
-6. After password login, fingerprint works for sudo.
-7. After password login, fingerprint works for lock-screen unlock.
+```bash
+fprintd-verify -f any "$USER"
+```
 
-Operationally, the security-preserving procedure is:
+The enrolled finger must match and an unenrolled finger must return
+`verify-no-match`. The current upstream `tools/install-pam.sh` expects
+Arch-style `/etc/pam.d/system-auth` ordering and may install Omarchy-specific
+lock-screen stacks. It is not a generic Ubuntu PAM procedure; do not run it on
+Ubuntu unless upstream explicitly supports the installed Ubuntu release and
+the helper's preflight confirms the actual PAM stack.
 
-> **After reboot, log in with the password once. Then use Touch ID for subsequent authentication.**
+Sudo and GNOME lock-screen fingerprint authentication have been tested on
+this Ubuntu machine, but the Ubuntu-specific PAM installation procedure and
+exact upstream commit used for that setup are not recorded here. Keep password
+authentication as fallback and use a verified root recovery/rollback path
+before any PAM changes.
 
-A GDM configuration was attempted to display:
+When validating the already configured test machine, test:
 
-> **Password required after restart**
+```bash
+sudo -k
+sudo -v
+```
 
-However, the tested login screen still displayed the fingerprint prompt:
+Password authentication must remain available as fallback.
 
-> **Swipe your right index finger across the fingerprint reader**
+### Login and keyring behavior
 
-The intended custom banner was therefore **not confirmed to work**.
+The tested workflow is password-first after reboot:
 
-A separate configuration intended to disable fingerprint authentication at the GDM login screen is also present, but fingerprint login remains available. Both the custom banner and GDM fingerprint restriction are **not yet solved** and should not be presented as completed fixes.
+1. Password login after reboot unlocks the GNOME login keyring.
+2. After password login, Touch ID works for sudo.
+3. After password login, Touch ID works for GNOME lock-screen unlock.
 
-## Suspend / resume finding
+Fingerprint authentication does not provide the plaintext password required
+to unlock the login keyring. Do not weaken keyring security merely to remove a
+prompt.
 
-Automatic suspend was temporarily enabled during QA specifically to test suspend/resume behavior.
+### Historical suspend / resume finding
 
-The test reproduced a Touch ID failure after resume.
+Automatic suspend was temporarily enabled during QA of the previous
+implementation.
 
-Observed after resume:
+The previous implementation reproduced a Touch ID failure after resume. `t2_ncm`, IPv6 addressing, `fprintd`, and the Touch ID service could appear healthy while biometric communication still timed out. Restarting the relevant services did not recover Touch ID; a reboot restored it.
 
-- `t2_ncm` could be `UP` with an IPv6 link-local address;
-- `fprintd-list` could still see the enrolled fingerprint;
-- `kait2en-t2-touchid.service` could remain active;
-- Touch ID communication could nevertheless time out with a BiometricKit advertisement/connection timeout.
+This finding belongs to the previous implementation and must not be
+attributed to the current `t2-touchid-linux` implementation. Suspend/resume
+with the current implementation has not yet been tested on this Ubuntu
+installation.
 
-Restarting `fprintd` did not recover Touch ID.
+The current upstream README reports `s2idle` suspend/resume verification on
+its proven configurations and says `deep` remains broken there. That upstream
+evidence does not verify suspend/resume on this Ubuntu installation.
 
-Restarting `kait2en-t2-touchid.service` did not recover Touch ID.
-
-Rebooting restored Touch ID.
-
-### Current rule
-
-> **KEEP AUTOMATIC SUSPEND DISABLED.**
-
-The suspend test was intentionally performed to reproduce the limitation. It should not be enabled as part of the normal tested configuration.
+> **Keep automatic suspend disabled on this Ubuntu installation until its behavior has been explicitly verified here.**
 
 ## Remaining tests
 
-- Formal trackpad testing
+- current implementation suspend/resume behavior on this Ubuntu installation
+- capture the installed upstream commit and document the Ubuntu-specific PAM
+  procedure used by the tested machine
+- formal trackpad testing
 - 3.5 mm headset microphone
-- Individual USB-C ports
-- Further power-management testing without enabling automatic suspend
-- GDM password-first configuration, if pursued later
+- individual USB-C ports
+- other supported power-management testing
