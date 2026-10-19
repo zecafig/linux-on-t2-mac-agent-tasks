@@ -57,6 +57,57 @@ macOS was preserved completely.
 
 Ubuntu occupies approximately 300 GB of the internal SSD, while the macOS APFS container remains approximately 700 GB.
 
+## Before booting the USB: change Startup Security Utility settings (in macOS)
+
+T2 Macs refuse to boot Linux media by default. This setting cannot be changed
+from the normal macOS desktop or from the Option-key Startup Manager. It lives
+in **Startup Security Utility**, which is only available from macOS Recovery.
+Do this before trying to boot the installer USB
+([t2linux pre-install guide](https://wiki.t2linux.org/guides/preinstall/#disable-secure-boot),
+[Apple documentation](https://support.apple.com/en-us/102522)):
+
+1. Shut down the Mac completely.
+2. Power on and immediately hold **Command (⌘)-R** until the Apple logo or
+   spinning globe appears (macOS Recovery).
+3. If asked, select your user and enter its administrator password.
+4. In the menu bar choose **Utilities → Startup Security Utility**.
+5. Click **Enter macOS Password**, choose an administrator account, and
+   authenticate again.
+6. Set **Secure Boot** to **No Security**.
+7. Set **Allow Boot Media** to **Allow booting from external or removable
+   media**.
+8. Close the utility, restart, and hold **Option (⌥)** to open Startup
+   Manager. Pick the orange **EFI Boot** entry (if there are two, try the
+   rightmost first).
+
+Notes:
+
+- This is the setting users report as "can't change boot config": it is
+  not in System Settings and not in the Option boot menu. Use Recovery.
+- If Startup Security Utility is greyed out or asks for a password, a
+  firmware password may be set; turn it off first
+  ([Apple](https://support.apple.com/en-us/102384)).
+- Use the built-in or a wired Apple keyboard; wireless and PC keyboards
+  often fail to register the Command-R key combination.
+- If Recovery reports error **-1008F**, the Mac has not reached Startup
+  Security Utility; this is a Recovery-startup problem, not the Linux USB
+  boot-security setting. Apple documents **Option-Command-R** as another
+  startup combination for Internet Recovery on Intel Macs. If the error
+  persists, check whether **Activation Lock** is involved: if you can boot
+  macOS, turn off Find My Mac in System Settings; otherwise, the owner can
+  remove the Mac from their account through
+  [iCloud Find Devices](https://www.icloud.com/find). A previously owned Mac
+  may require its previous owner to remove Activation Lock. See
+  [Apple's Recovery guidance](https://support.apple.com/en-us/102518) and
+  [Activation Lock guidance](https://support.apple.com/en-us/102541).
+- If you see "A software update is required to use this startup disk",
+  Secure Boot is still being enforced. Re-check step 6, or try the other
+  orange EFI entry.
+- Afterwards you may set "Disallow booting from external or removable media"
+  again; the internal Linux install keeps booting from Startup Manager.
+  Keep Secure Boot at No Security, as Linux will not boot otherwise.
+- Intel T2 Macs only. Apple silicon Macs are not supported by this guide.
+
 ## Installation journey
 
 This playbook does not replace the Ubuntu installation guide. Install Ubuntu
